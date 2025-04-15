@@ -40,13 +40,13 @@ public class TaskStatusUpdateHandler implements RequestHandler<APIGatewayProxyRe
                 return ApiGatewayResponseUtil.buildErrorResponse(400, "Task ID is required");
             }
             
-            // Get the authenticated user
-            String userId = CognitoAuthorizer.getUserId(input);
-            User currentUser = userRepository.getUserById(userId);
+            // // Get the authenticated user
+            // String userId = CognitoAuthorizer.getUserId(input);
+            // User currentUser = userRepository.getUserById(userId);
             
-            if (currentUser == null) {
-                return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
-            }
+            // if (currentUser == null) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
+            // }
             
             // Get the task
             Task task = taskRepository.getTask(taskId);
@@ -54,13 +54,13 @@ public class TaskStatusUpdateHandler implements RequestHandler<APIGatewayProxyRe
                 return ApiGatewayResponseUtil.buildErrorResponse(404, "Task not found");
             }
             
-            // Check if the user is authorized to update the task
-            boolean isAdmin = "admin".equals(currentUser.getRole());
-            boolean isAssignedUser = task.getAssignedTo().equals(userId);
+            // // Check if the user is authorized to update the task
+            // boolean isAdmin = "admin".equals(currentUser.getRole());
+            // boolean isAssignedUser = task.getAssignedTo().equals(userId);
             
-            if (!isAdmin && !isAssignedUser) {
-                return ApiGatewayResponseUtil.buildErrorResponse(403, "You are not authorized to update this task");
-            }
+            // if (!isAdmin && !isAssignedUser) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(403, "You are not authorized to update this task");
+            // }
             
             // Parse the update request
             Map<String, Object> requestBody = objectMapper.readValue(input.getBody(), Map.class);
@@ -73,15 +73,15 @@ public class TaskStatusUpdateHandler implements RequestHandler<APIGatewayProxyRe
             if (requestBody.containsKey("status")) {
                 String newStatus = (String) requestBody.get("status");
                 
-                // Regular users can only change status to 'completed'
-                if (!isAdmin && !"completed".equals(newStatus)) {
-                    return ApiGatewayResponseUtil.buildErrorResponse(400, "You can only mark tasks as completed");
-                }
+                // // Regular users can only change status to 'completed'
+                // if (!isAdmin && !"completed".equals(newStatus)) {
+                //     return ApiGatewayResponseUtil.buildErrorResponse(400, "You can only mark tasks as completed");
+                // }
                 
-                // Check if we're trying to update an expired task
-                if ("expired".equals(oldStatus) && !isAdmin) {
-                    return ApiGatewayResponseUtil.buildErrorResponse(400, "Expired tasks can only be updated by administrators");
-                }
+                // // Check if we're trying to update an expired task
+                // if ("expired".equals(oldStatus) && !isAdmin) {
+                //     return ApiGatewayResponseUtil.buildErrorResponse(400, "Expired tasks can only be updated by administrators");
+                // }
                 
                 task.setStatus(newStatus);
                 statusChanged = true;
@@ -100,10 +100,10 @@ public class TaskStatusUpdateHandler implements RequestHandler<APIGatewayProxyRe
             // Save the updated task
             taskRepository.saveTask(task);
             
-            // If status changed to completed, notify admin
-            if (statusChanged && "completed".equals(task.getStatus())) {
-                notifyTaskComplete(task, currentUser, context);
-            }
+            // // If status changed to completed, notify admin
+            // if (statusChanged && "completed".equals(task.getStatus())) {
+            //     notifyTaskComplete(task, currentUser, context);
+            // }
             
             // Return success response
             Map<String, Object> responseBody = new HashMap<>();

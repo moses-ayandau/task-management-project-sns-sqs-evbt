@@ -1,25 +1,20 @@
 package helloworld;
 
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import helloworld.repository.UserRepository;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SendMessageResponse;
-
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-
-import helloworld.ApiGatewayResponseUtil;
-import helloworld.CognitoAuthorizer;
-import helloworld.Task;
-import helloworld.User;
-import helloworld.repository.UserRepository;
 
 public class TaskCreationHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
@@ -39,16 +34,16 @@ public class TaskCreationHandler implements RequestHandler<APIGatewayProxyReques
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
         try {
             // Validate that the request comes from an authenticated admin user
-            String userId = CognitoAuthorizer.getUserId(input);
-            User currentUser = userRepository.getUserById(userId);
+            // String userId = CognitoAuthorizer.getUserId(input);
+            // User currentUser = userRepository.getUserById(userId);
             
-            if (currentUser == null) {
-                return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
-            }
+            // if (currentUser == null) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
+            // }
             
-            if (!"admin".equals(currentUser.getRole())) {
-                return ApiGatewayResponseUtil.buildErrorResponse(403, "Only administrators can create tasks");
-            }
+            // if (!"admin".equals(currentUser.getRole())) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(403, "Only administrators can create tasks");
+            // }
 
             // Parse the request body to create a new task
             Map<String, Object> requestBody = objectMapper.readValue(input.getBody(), Map.class);
@@ -75,7 +70,7 @@ public class TaskCreationHandler implements RequestHandler<APIGatewayProxyReques
             task.setDeadline((String) requestBody.get("deadline"));
             task.setStatus("open");
             task.setCreatedAt(Instant.now().toString());
-            task.setCreatedBy(userId);
+            // task.setCreatedBy(userId);
 
             // Enqueue task for processing
             String taskJson = objectMapper.writeValueAsString(task);

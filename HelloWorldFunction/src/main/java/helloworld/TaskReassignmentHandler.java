@@ -1,23 +1,19 @@
 package helloworld;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import helloworld.repository.TaskRepository;
+import helloworld.repository.UserRepository;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sns.model.PublishRequest;
-
-import java.util.HashMap;
-import java.util.Map;
-
-import helloworld.ApiGatewayResponseUtil;
-import helloworld.CognitoAuthorizer;
-import helloworld.User;
-import helloworld.repository.TaskRepository;
-import helloworld.repository.UserRepository;
 
 public class TaskReassignmentHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
@@ -44,18 +40,18 @@ public class TaskReassignmentHandler implements RequestHandler<APIGatewayProxyRe
                 return ApiGatewayResponseUtil.buildErrorResponse(400, "Task ID is required");
             }
             
-            // Get the authenticated user
-            String userId = CognitoAuthorizer.getUserId(input);
-            User currentUser = userRepository.getUserById(userId);
+            // // Get the authenticated user
+            // String userId = CognitoAuthorizer.getUserId(input);
+            // User currentUser = userRepository.getUserById(userId);
             
-            if (currentUser == null) {
-                return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
-            }
+            // if (currentUser == null) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(404, "User not found");
+            // }
             
-            // Only administrators can reassign tasks
-            if (!"admin".equals(currentUser.getRole())) {
-                return ApiGatewayResponseUtil.buildErrorResponse(403, "Only administrators can reassign tasks");
-            }
+            // // Only administrators can reassign tasks
+            // if (!"admin".equals(currentUser.getRole())) {
+            //     return ApiGatewayResponseUtil.buildErrorResponse(403, "Only administrators can reassign tasks");
+            // }
             
             // Get the task
             Task task = taskRepository.getTask(taskId);

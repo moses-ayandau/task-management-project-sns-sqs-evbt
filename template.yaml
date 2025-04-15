@@ -12,10 +12,10 @@ Parameters:
       - prod
     Description: Environment to deploy resources to
 
-  CognitoUserPoolName:
-    Type: String
-    Default: TaskManagementUserPool
-    Description: Name for the Cognito User Pool
+  # CognitoUserPoolName:
+  #   Type: String
+  #   Default: TaskManagementUserPool
+  #   Description: Name for the Cognito User Pool
 
   AdminEmail:
     Type: String
@@ -138,66 +138,66 @@ Resources:
     Properties:
       QueueName: !Sub 'ExpiredTasksDLQ-${Environment}'
 
-  # Cognito User Pool for authentication
-  UserPool:
-    Type: AWS::Cognito::UserPool
-    Properties:
-      UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
-      AutoVerifiedAttributes:
-        - email
-      Schema:
-        - Name: email
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: name
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: custom:role
-          AttributeDataType: String
-          Mutable: true
-          Required: false
-      Policies:
-        PasswordPolicy:
-          MinimumLength: 8
-          RequireLowercase: true
-          RequireNumbers: true
-          RequireSymbols: true
-          RequireUppercase: true
-      AdminCreateUserConfig:
-        AllowAdminCreateUserOnly: true
-        InviteMessageTemplate:
-          EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
-          EmailSubject: "Your task management system login information"
-      # Remove the lambda trigger from here - we'll add it later
-      # LambdaConfig:
-      #   PostConfirmation: !GetAtt UserSignupFunction.Arn
+  # # Cognito User Pool for authentication
+  # UserPool:
+  #   Type: AWS::Cognito::UserPool
+  #   Properties:
+  #     UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
+  #     AutoVerifiedAttributes:
+  #       - email
+  #     Schema:
+  #       - Name: email
+  #         AttributeDataType: String
+  #         Mutable: true
+  #         Required: true
+  #       - Name: name
+  #         AttributeDataType: String
+  #         Mutable: true
+  #         Required: true
+  #       - Name: custom:role
+  #         AttributeDataType: String
+  #         Mutable: true
+  #         Required: false
+  #     Policies:
+  #       PasswordPolicy:
+  #         MinimumLength: 8
+  #         RequireLowercase: true
+  #         RequireNumbers: true
+  #         RequireSymbols: true
+  #         RequireUppercase: true
+  #     AdminCreateUserConfig:
+  #       AllowAdminCreateUserOnly: true
+  #       InviteMessageTemplate:
+  #         EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
+  #         EmailSubject: "Your task management system login information"
+  #     # Remove the lambda trigger from here - we'll add it later
+  #     # LambdaConfig:
+  #     #   PostConfirmation: !GetAtt UserSignupFunction.Arn
 
-  UserPoolClient:
-    Type: AWS::Cognito::UserPoolClient
-    DependsOn: UserPool
-    Properties:
-      ClientName: !Sub 'TaskManagementClient-${Environment}'
-      UserPoolId: !Ref UserPool
-      ExplicitAuthFlows:
-        - ALLOW_USER_PASSWORD_AUTH
-        - ALLOW_REFRESH_TOKEN_AUTH
-      GenerateSecret: false
+  # UserPoolClient:
+  #   Type: AWS::Cognito::UserPoolClient
+  #   DependsOn: UserPool
+  #   Properties:
+  #     ClientName: !Sub 'TaskManagementClient-${Environment}'
+  #     UserPoolId: !Ref UserPool
+  #     ExplicitAuthFlows:
+  #       - ALLOW_USER_PASSWORD_AUTH
+  #       - ALLOW_REFRESH_TOKEN_AUTH
+  #     GenerateSecret: false
 
   # API Gateway - Fix the dependency issues
   TaskManagementApi:
     Type: AWS::Serverless::Api
-    DependsOn: UserPool
+    # DependsOn: UserPool
     Properties:
       StageName: !Ref Environment
-      Auth:
-        DefaultAuthorizer: CognitoAuthorizer
-        Authorizers:
-          CognitoAuthorizer:
-            UserPoolArn: !GetAtt UserPool.Arn
-            Identity:
-              Header: Authorization
+      # Auth:
+      #   DefaultAuthorizer: CognitoAuthorizer
+      #   Authorizers:
+      #     CognitoAuthorizer:
+      #       UserPoolArn: !GetAtt UserPool.Arn
+      #       Identity:
+      #         Header: Authorization
 
   # Subscribe Admin to Required Topics
   AdminClosedTaskSubscription:
@@ -215,11 +215,31 @@ Resources:
       Endpoint: !Ref AdminEmail
 
   # Lambda Functions - Now fixing the circular dependencies
+  # UserSignupFunction:
+  #   Type: AWS::Serverless::Function
+  #   DependsOn: 
+  #     - UserPool
+  #     - UserPoolClient
+  #   Properties:
+  #     FunctionName: !Sub User-signup-${Environment}
+  #     CodeUri: HelloWorldFunction/
+  #     Handler: helloworld.UserSignupHandler::handleRequest
+  #     Environment:
+  #       Variables:
+  #         ENVIRONMENT: !Ref Environment
+  #         USER_TABLE_NAME: !Ref UsersTable
+  #         TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+  #         TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+  #         CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+  #         TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+  #         TASK_QUEUE_URL: !Ref TaskQueue
+  #         DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+  #         USER_POOL_ID: !Ref UserPool
+  #         USER_POOL_CLIENT_ID: !Ref UserPoolClient
+      # Remove the event trigger - we'll add it via a permission later
+
   UserSignupFunction:
     Type: AWS::Serverless::Function
-    DependsOn: 
-      - UserPool
-      - UserPoolClient
     Properties:
       FunctionName: !Sub User-signup-${Environment}
       CodeUri: HelloWorldFunction/
@@ -234,32 +254,47 @@ Resources:
           TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
           TASK_QUEUE_URL: !Ref TaskQueue
           DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
-          USER_POOL_ID: !Ref UserPool
-          USER_POOL_CLIENT_ID: !Ref UserPoolClient
-      # Remove the event trigger - we'll add it via a permission later
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskCompleteNotificationTopic.TopicName
+      Events:
+        CreateUserAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagementApi
+            Path: /users
+            Method: POST
 
-  # Add the PostConfirmation trigger to the UserPool after creating the Lambda
-  UserPoolLambdaConfig:
-    Type: AWS::Cognito::UserPoolLambdaConfig
-    DependsOn:
-      - UserSignupFunction
-      - UserPool
-    Properties:
-      UserPoolId: !Ref UserPool
-      LambdaConfig:
-        PostConfirmation: !GetAtt UserSignupFunction.Arn
+  # # Add the PostConfirmation trigger to the UserPool after creating the Lambda
+  # UserPoolLambdaConfig:
+  #   Type: AWS::Cognito::UserPoolLambdaConfig
+  #   DependsOn:
+  #     - UserSignupFunction
+  #     - UserPool
+  #   Properties:
+  #     UserPoolId: !Ref UserPool
+  #     LambdaConfig:
+  #       PostConfirmation: !GetAtt UserSignupFunction.Arn
 
   # Add permission for Cognito to invoke the Lambda
-  UserSignupFunctionPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn:
-      - UserSignupFunction
-      - UserPool
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref UserSignupFunction
-      Principal: cognito-idp.amazonaws.com
-      SourceArn: !GetAtt UserPool.Arn
+  # UserSignupFunctionPermission:
+  #   Type: AWS::Lambda::Permission
+  #   DependsOn:
+  #     - UserSignupFunction
+  #     # - UserPool
+  #   Properties:
+  #     Action: lambda:InvokeFunction
+  #     FunctionName: !Ref UserSignupFunction
+  #     # Principal: cognito-idp.amazonaws.com
+  #     # SourceArn: !GetAtt UserPool.Arn
 
   TaskCreationFunction:
     Type: AWS::Serverless::Function
@@ -278,8 +313,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks
             Method: POST
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+            #   Authorizer: CognitoAuthorizer
 
   TaskAssignmentProcessorFunction:
     Type: AWS::Serverless::Function
@@ -341,8 +376,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks/{taskId}
             Method: PUT
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+            #   Authorizer: CognitoAuthorizer
 
   TaskReassignmentFunction:
     Type: AWS::Serverless::Function
@@ -363,8 +398,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks/{taskId}/reassign
             Method: PUT
-            Auth:
-              Authorizer: CognitoAuthorizer
+            # Auth:
+            #   Authorizer: CognitoAuthorizer
 
   # Step Functions
   UserOnboardingStateMachine:
@@ -419,55 +454,36 @@ Outputs:
   ApiEndpoint:
     Description: API Gateway Endpoint URL
     Value: !Sub 'https://${TaskManagementApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
-
-  UserPoolId:
-    Description: Cognito User Pool ID
-    Value: !Ref UserPool
-
-  UserPoolClientId:
-    Description: Cognito User Pool Client ID
-    Value: !Ref UserPoolClient
-
   TasksTableName:
     Description: DynamoDB Tasks Table Name
     Value: !Ref TasksTable
-
   UsersTableName:
     Description: DynamoDB Users Table Name
     Value: !Ref UsersTable
-
   TaskAssignmentTopicArn:
     Description: SNS Topic ARN for Task Assignment Notifications
     Value: !Ref TaskAssignmentNotificationTopic
-
   TaskDeadlineTopicArn:
     Description: SNS Topic ARN for Task Deadline Notifications
     Value: !Ref TaskDeadlineNotificationTopic
-
   ClosedTaskTopicArn:
     Description: SNS Topic ARN for Closed Task Notifications
     Value: !Ref ClosedTaskNotificationTopic
-
   TaskCompleteTopicArn:
     Description: SNS Topic ARN for Task Complete Notifications
     Value: !Ref TaskCompleteNotificationTopic
-
   UserOnboardingStateMachineArn:
     Description: ARN of the User Onboarding State Machine
     Value: !Ref UserOnboardingStateMachine
-
   TaskExpiredStateMachineArn:
     Description: ARN of the Task Expired State Machine
     Value: !Ref TaskExpiredStateMachine
-
   TaskQueueUrl:
     Description: URL of the Task Queue
     Value: !Ref TaskQueue
-
   DeadLetterQueueUrl:
     Description: URL of the Dead Letter Queue
     Value: !Ref DeadLetterQueue
-
   ExpiredTasksQueueUrl:
     Description: URL of the Expired Tasks Queue
     Value: !Ref ExpiredTasksQueue
