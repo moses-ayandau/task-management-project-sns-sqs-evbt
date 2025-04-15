@@ -1,8 +1,8 @@
 {
-    "Comment": "Task Expired State Machine that handles expired tasks",
-    "StartAt": "ParallelProcessing",
+    "Comment": "A state machine that handles task expiration process",
+    "StartAt": "ProcessExpiredTask",
     "States": {
-      "ParallelProcessing": {
+      "ProcessExpiredTask": {
         "Type": "Parallel",
         "Branches": [
           {
@@ -14,41 +14,84 @@
                 "Parameters": {
                   "TableName": "${TasksTableName}",
                   "Key": {
-                    "taskId": {
+                    "id": {
                       "S.$": "$.taskId"
                     }
                   },
-                  "UpdateExpression": "SET #status = :status, updatedAt = :now",
+                  "UpdateExpression": "SET #status = :status",
                   "ExpressionAttributeNames": {
                     "#status": "status"
                   },
                   "ExpressionAttributeValues": {
                     ":status": {
                       "S": "expired"
-                    },
-                    ":now": {
-                      "N.$": "$$.State.EnteredTime"
                     }
-                  }
+                  },
+                  "ReturnValues": "ALL_NEW"
                 },
+                "ResultPath": "$.updateResult",
                 "End": true
               }
             }
           },
           {
-            "StartAt": "NotifyAssigneeAndAdmin",
+            "StartAt": "GetTaskDetails",
             "States": {
-              "NotifyAssigneeAndAdmin": {
+              "GetTaskDetails": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::dynamodb:getItem",
+                "Parameters": {
+                  "TableName": "${TasksTableName}",
+                  "Key": {
+                    "id": {
+                      "S.$": "$.taskId"
+                    }
+                  }
+                },
+                "ResultPath": "$.taskDetails",
+                "Next": "GetUserDetails"
+              },
+              "GetUserDetails": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::dynamodb:getItem",
+                "Parameters": {
+                  "TableName": "${UsersTableName}",
+                  "Key": {
+                    "id": {
+                      "S.$": "$.taskDetails.Item.assignedTo.S"
+                    }
+                  }
+                },
+                "ResultPath": "$.userDetails",
+                "Next": "GetAdminDetails"
+              },
+              "GetAdminDetails": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::dynamodb:scan",
+                "Parameters": {
+                  "TableName": "${UsersTableName}",
+                  "FilterExpression": "isAdmin = :isAdmin",
+                  "ExpressionAttributeValues": {
+                    ":isAdmin": {
+                      "BOOL": true
+                    }
+                  }
+                },
+                "ResultPath": "$.adminDetails",
+                "Next": "NotifyUsersAboutExpiredTask"
+              },
+              "NotifyUsersAboutExpiredTask": {
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:publish",
                 "Parameters": {
-                  "TopicArn": "${ClosedTaskTopicArn}",
-                  "Subject.$": "States.Format('Task Expired: {}', $.name)",
-                  "Message.$": "States.Format('The following task has expired:\n\nTask ID: {}\nName: {}\nDescription: {}\nAssigned To: {}\n\nThis task has been automatically closed due to missing the deadline. Please contact an administrator if you need this task to be reopened.', $.taskId, $.name, $.description, $.assignedTo)",
+                  "TopicArn": "${ClosedTaskNotificationTopicArn}",
+                  "Message": {
+                    "default.$": "States.Format('Task ID: {} has expired. Name: {}. Description: {}', $.taskId, $.taskDetails.Item.name.S, $.taskDetails.Item.description.S)"
+                  },
                   "MessageAttributes": {
-                    "assignedTo": {
-                      "DataType": "String",
-                      "StringValue.$": "$.assignedTo"
+                    "recipientEmails": {
+                      "DataType": "String.Array",
+                      "StringValue.$": "States.JsonToString(States.Array($.userDetails.Item.email.S, $.adminDetails.Items[0].email.S))"
                     }
                   }
                 },

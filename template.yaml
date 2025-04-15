@@ -1,78 +1,21 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SAM Template for Task Management System using Java Spring Boot
-
-Parameters:
-  Environment:
-    Type: String
-    Default: dev
-    AllowedValues:
-      - dev
-      - test
-      - prod
-    Description: Environment to deploy resources to
-
-  # CognitoUserPoolName:
-  #   Type: String
-  #   Default: TaskManagementUserPool
-  #   Description: Name for the Cognito User Pool
-
-  AdminEmail:
-    Type: String
-    Description: Email address of the admin user
-
-Globals:
-  Function:
-    Timeout: 30
-    MemorySize: 512
-    Runtime: java21
-    Environment:
-      Variables:
-        ENVIRONMENT: !Ref Environment
-        TASK_TABLE_NAME: !Ref TasksTable
-        USER_TABLE_NAME: !Ref UsersTable
-        TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
-        TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-        CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
-        TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
-        TASK_QUEUE_URL: !Ref TaskQueue
-        DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+Description: Task Management System with User Management, Tasks, SQS and SNS integration
 
 Resources:
-  # DynamoDB Tables - Create these first
-  TasksTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub 'Tasks-${Environment}'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: taskId
-          AttributeType: S
-        - AttributeName: assignedTo
-          AttributeType: S
-      KeySchema:
-        - AttributeName: taskId
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: AssignedToIndex
-          KeySchema:
-            - AttributeName: assignedTo
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-
+  # DynamoDB Tables
   UsersTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub 'Users-${Environment}'
+      TableName: Users
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: userId
+        - AttributeName: id
           AttributeType: S
         - AttributeName: email
           AttributeType: S
       KeySchema:
-        - AttributeName: userId
+        - AttributeName: id
           KeyType: HASH
       GlobalSecondaryIndexes:
         - IndexName: EmailIndex
@@ -82,53 +25,78 @@ Resources:
           Projection:
             ProjectionType: ALL
 
-  # SNS Topics for notifications
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Tasks
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: assignedTo
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: AssignedToIndex
+          KeySchema:
+            - AttributeName: assignedTo
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+  # SNS Topics
   TaskAssignmentNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub 'TaskAssignmentNotificationTopic-${Environment}'
-      DisplayName: 'Task Assignment Notifications'
+      TopicName: TaskAssignmentNotificationTopic
+      DisplayName: Task Assignment Notification
 
   TaskDeadlineNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub 'TaskDeadlineNotificationTopic-${Environment}'
-      DisplayName: 'Task Deadline Notifications'
+      TopicName: TaskDeadlineNotificationTopic
+      DisplayName: Task Deadline Notification
 
   ClosedTaskNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub 'ClosedTaskNotificationTopic-${Environment}'
-      DisplayName: 'Closed Task Notifications'
+      TopicName: ClosedTaskNotificationTopic
+      DisplayName: Closed Task Notification
 
   TaskCompleteNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub 'TaskCompleteNotificationTopic-${Environment}'
-      DisplayName: 'Task Complete Notifications'
+      TopicName: TaskCompleteNotificationTopic
+      DisplayName: Task Complete Notification
 
   # SQS Queues
-  TaskQueue:
+  TaskAssignmentQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub 'TaskQueue-${Environment}.fifo'
+      QueueName: TaskAssignmentQueue.fifo
       FifoQueue: true
       ContentBasedDeduplication: true
+      VisibilityTimeout: 60
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        deadLetterTargetArn: !GetAtt TaskAssignmentDLQ.Arn
         maxReceiveCount: 3
 
-  DeadLetterQueue:
+  TaskAssignmentDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub 'TaskDLQ-${Environment}.fifo'
+      QueueName: TaskAssignmentDLQ.fifo
       FifoQueue: true
       ContentBasedDeduplication: true
 
   ExpiredTasksQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub 'ExpiredTasksQueue-${Environment}'
+      QueueName: ExpiredTasksQueue
+      VisibilityTimeout: 60
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt ExpiredTasksDLQ.Arn
         maxReceiveCount: 3
@@ -136,354 +104,257 @@ Resources:
   ExpiredTasksDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub 'ExpiredTasksDLQ-${Environment}'
+      QueueName: ExpiredTasksDLQ
 
-  # # Cognito User Pool for authentication
-  # UserPool:
-  #   Type: AWS::Cognito::UserPool
-  #   Properties:
-  #     UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
-  #     AutoVerifiedAttributes:
-  #       - email
-  #     Schema:
-  #       - Name: email
-  #         AttributeDataType: String
-  #         Mutable: true
-  #         Required: true
-  #       - Name: name
-  #         AttributeDataType: String
-  #         Mutable: true
-  #         Required: true
-  #       - Name: custom:role
-  #         AttributeDataType: String
-  #         Mutable: true
-  #         Required: false
-  #     Policies:
-  #       PasswordPolicy:
-  #         MinimumLength: 8
-  #         RequireLowercase: true
-  #         RequireNumbers: true
-  #         RequireSymbols: true
-  #         RequireUppercase: true
-  #     AdminCreateUserConfig:
-  #       AllowAdminCreateUserOnly: true
-  #       InviteMessageTemplate:
-  #         EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
-  #         EmailSubject: "Your task management system login information"
-  #     # Remove the lambda trigger from here - we'll add it later
-  #     # LambdaConfig:
-  #     #   PostConfirmation: !GetAtt UserSignupFunction.Arn
-
-  # UserPoolClient:
-  #   Type: AWS::Cognito::UserPoolClient
-  #   DependsOn: UserPool
-  #   Properties:
-  #     ClientName: !Sub 'TaskManagementClient-${Environment}'
-  #     UserPoolId: !Ref UserPool
-  #     ExplicitAuthFlows:
-  #       - ALLOW_USER_PASSWORD_AUTH
-  #       - ALLOW_REFRESH_TOKEN_AUTH
-  #     GenerateSecret: false
-
-  # API Gateway - Fix the dependency issues
-  TaskManagementApi:
-    Type: AWS::Serverless::Api
-    # DependsOn: UserPool
+  # Step Functions
+  UserOnboardingStepFunction:
+    Type: AWS::Serverless::StateMachine
     Properties:
-      StageName: !Ref Environment
-      # Auth:
-      #   DefaultAuthorizer: CognitoAuthorizer
-      #   Authorizers:
-      #     CognitoAuthorizer:
-      #       UserPoolArn: !GetAtt UserPool.Arn
-      #       Identity:
-      #         Header: Authorization
-
-  # Subscribe Admin to Required Topics
-  AdminClosedTaskSubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref ClosedTaskNotificationTopic
-      Protocol: email
-      Endpoint: !Ref AdminEmail
-
-  AdminTaskCompleteSubscription:
-    Type: AWS::SNS::Subscription
-    Properties:
-      TopicArn: !Ref TaskCompleteNotificationTopic
-      Protocol: email
-      Endpoint: !Ref AdminEmail
-
-  # Lambda Functions - Now fixing the circular dependencies
-  # UserSignupFunction:
-  #   Type: AWS::Serverless::Function
-  #   DependsOn: 
-  #     - UserPool
-  #     - UserPoolClient
-  #   Properties:
-  #     FunctionName: !Sub User-signup-${Environment}
-  #     CodeUri: HelloWorldFunction/
-  #     Handler: helloworld.UserSignupHandler::handleRequest
-  #     Environment:
-  #       Variables:
-  #         ENVIRONMENT: !Ref Environment
-  #         USER_TABLE_NAME: !Ref UsersTable
-  #         TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
-  #         TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-  #         CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
-  #         TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
-  #         TASK_QUEUE_URL: !Ref TaskQueue
-  #         DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
-  #         USER_POOL_ID: !Ref UserPool
-  #         USER_POOL_CLIENT_ID: !Ref UserPoolClient
-      # Remove the event trigger - we'll add it via a permission later
-
-  UserSignupFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub User-signup-${Environment}
-      CodeUri: HelloWorldFunction/
-      Handler: helloworld.UserSignupHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_TABLE_NAME: !Ref UsersTable
-          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
-          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
-          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
-          TASK_QUEUE_URL: !Ref TaskQueue
-          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+      DefinitionUri: statemachines/user-onboarding.asl.json
+      DefinitionSubstitutions:
+        TaskAssignmentNotificationTopicArn: !Ref TaskAssignmentNotificationTopic
+        TaskDeadlineNotificationTopicArn: !Ref TaskDeadlineNotificationTopic
+        ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskCompleteNotificationTopic.TopicName
-      Events:
-        CreateUserAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /users
-            Method: POST
 
-  # # Add the PostConfirmation trigger to the UserPool after creating the Lambda
-  # UserPoolLambdaConfig:
-  #   Type: AWS::Cognito::UserPoolLambdaConfig
-  #   DependsOn:
-  #     - UserSignupFunction
-  #     - UserPool
-  #   Properties:
-  #     UserPoolId: !Ref UserPool
-  #     LambdaConfig:
-  #       PostConfirmation: !GetAtt UserSignupFunction.Arn
-
-  # Add permission for Cognito to invoke the Lambda
-  # UserSignupFunctionPermission:
-  #   Type: AWS::Lambda::Permission
-  #   DependsOn:
-  #     - UserSignupFunction
-  #     # - UserPool
-  #   Properties:
-  #     Action: lambda:InvokeFunction
-  #     FunctionName: !Ref UserSignupFunction
-  #     # Principal: cognito-idp.amazonaws.com
-  #     # SourceArn: !GetAtt UserPool.Arn
-
-  TaskCreationFunction:
-    Type: AWS::Serverless::Function
-    DependsOn: TaskManagementApi
+  TaskExpirationStepFunction:
+    Type: AWS::Serverless::StateMachine
     Properties:
-      FunctionName: !Sub Task-creation-${Environment}
+      DefinitionUri: statemachines/task-expiration.asl.json
+      DefinitionSubstitutions:
+        UsersTableName: !Ref UsersTable
+        TasksTableName: !Ref TasksTable
+        ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+
+  # Lambda Functions
+  CreateUserFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: HelloWorldFunction/
+      Handler: helloworld.UserSignupHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+          USER_ONBOARDING_STEP_FUNCTION_ARN: !GetAtt UserOnboardingStepFunction.Arn
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt UserOnboardingStepFunction.Name
+
+  CreateTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskCreationHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+          TASK_ASSIGNMENT_QUEUE_URL: !Ref TaskAssignmentQueue
       Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
         - SQSSendMessagePolicy:
-            QueueName: !GetAtt TaskQueue.QueueName
-      Events:
-        CreateTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks
-            Method: POST
-            # Auth:
-            #   Authorizer: CognitoAuthorizer
+            QueueName: !GetAtt TaskAssignmentQueue.QueueName
 
-  TaskAssignmentProcessorFunction:
+  ProcessTaskAssignmentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-assignment-processor-${Environment}
       CodeUri: HelloWorldFunction/
-      Handler: helloworld.TaskAssignmentProcessorHandler::handleRequest
-      Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+      Handler: helloworld.TaskAssignmentHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          USERS_TABLE: !Ref UsersTable
+          TASKS_TABLE: !Ref TasksTable
+          TASK_ASSIGNMENT_NOTIFICATION_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
       Events:
         SQSEvent:
           Type: SQS
           Properties:
-            Queue: !GetAtt TaskQueue.Arn
+            Queue: !GetAtt TaskAssignmentQueue.Arn
             BatchSize: 1
-
-  DeadlineNotifierFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub Deadline-notifier-${Environment}
-      CodeUri: HelloWorldFunction/
-      Handler: helloworld.DeadlineNotifierHandler::handleRequest
       Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
 
-  TaskExpiredProcessorFunction:
+  UpdateTaskFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-expired-processor-${Environment}
-      CodeUri: HelloWorldFunction/
-      Handler: helloworld.TaskExpiredProcessorHandler::handleRequest
-      Events:
-        ExpiredTasksQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt ExpiredTasksQueue.Arn
-            BatchSize: 1
-
-  TaskStatusUpdateFunction:
-    Type: AWS::Serverless::Function
-    DependsOn: TaskManagementApi
-    Properties:
-      FunctionName: !Sub Task-status-update-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskStatusUpdateHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+          TASK_COMPLETE_NOTIFICATION_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskCompleteNotificationTopic.TopicName
-      Events:
-        UpdateTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks/{taskId}
-            Method: PUT
-            # Auth:
-            #   Authorizer: CognitoAuthorizer
 
-  TaskReassignmentFunction:
+  ReassignTaskFunction:
     Type: AWS::Serverless::Function
-    DependsOn: TaskManagementApi
     Properties:
-      FunctionName: !Sub Task-reassignment-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskReassignmentHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+          TASK_ASSIGNMENT_QUEUE_URL: !Ref TaskAssignmentQueue
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-      Events:
-        ReassignTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks/{taskId}/reassign
-            Method: PUT
-            # Auth:
-            #   Authorizer: CognitoAuthorizer
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt TaskAssignmentQueue.QueueName
 
-  # Step Functions
-  UserOnboardingStateMachine:
-    Type: AWS::Serverless::StateMachine
+  # ProcessExpiredTaskFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: lambdas/task/
+  #     Handler: org.example.handlers.ProcessExpiredTaskHandler::handleRequest
+  #     Runtime: java21
+  #     Architectures:
+  #       - x86_64
+  #     MemorySize: 512
+  #     Timeout: 30
+  #     Environment:
+  #       Variables:
+  #         TASK_EXPIRATION_STEP_FUNCTION_ARN: !GetAtt TaskExpirationStepFunction.Arn
+  #     Events:
+  #       SQSEvent:
+  #         Type: SQS
+  #         Properties:
+  #           Queue: !GetAtt ExpiredTasksQueue.Arn
+  #           BatchSize: 1
+  #     Policies:
+  #       - StepFunctionsExecutionPolicy:
+  #           StateMachineName: !GetAtt TaskExpirationStepFunction.Name
+
+  # # EventBridge Scheduler Rule for Task Deadlines
+  # TaskDeadlineScheduler:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: lambdas/scheduler/
+  #     Handler: org.example.handlers.TaskDeadlineSchedulerHandler::handleRequest
+  #     Runtime: java21
+  #     Architectures:
+  #       - x86_64
+  #     MemorySize: 512
+  #     Timeout: 30
+  #     Environment:
+  #       Variables:
+  #         TASKS_TABLE: !Ref TasksTable
+  #         TASK_DEADLINE_NOTIFICATION_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+  #         EXPIRED_TASKS_QUEUE_URL: !Ref ExpiredTasksQueue
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref TasksTable
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+  #       - SQSSendMessagePolicy:
+  #           QueueName: !GetAtt ExpiredTasksQueue.QueueName
+
+  # EventBridge Scheduler Role
+  EventBridgeSchedulerRole:
+    Type: AWS::IAM::Role
     Properties:
-      DefinitionSubstitutions:
-        TaskAssignmentTopicArn: !Ref TaskAssignmentNotificationTopic
-        TaskDeadlineTopicArn: !Ref TaskDeadlineNotificationTopic
-        ClosedTaskTopicArn: !Ref ClosedTaskNotificationTopic
-      DefinitionUri: statemachines/user-onboarding.asl.json
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEventBridgeSchedulerExecutionPolicy
       Policies:
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-
-  TaskExpiredStateMachine:
-    Type: AWS::Serverless::StateMachine
-    Properties:
-      DefinitionSubstitutions:
-        TasksTableName: !Ref TasksTable
-        ClosedTaskTopicArn: !Ref ClosedTaskNotificationTopic
-      DefinitionUri: statemachines/task-expired.asl.json
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref TasksTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-
-  # EventBridge Rule for task deadline notifications
-  DeadlineSchedulerRule:
-    Type: AWS::Events::Rule
-    Properties:
-      Name: !Sub 'TaskDeadlineChecker-${Environment}'
-      ScheduleExpression: 'rate(5 minutes)'
-      State: ENABLED
-      Targets:
-        - Arn: !GetAtt DeadlineNotifierFunction.Arn
-          Id: DeadlineNotifierTarget
-
-  DeadlineSchedulerPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref DeadlineNotifierFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt DeadlineSchedulerRule.Arn
+        - PolicyName: InvokeLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt TaskDeadlineScheduler.Arn
 
 Outputs:
-  ApiEndpoint:
-    Description: API Gateway Endpoint URL
-    Value: !Sub 'https://${TaskManagementApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
-  TasksTableName:
-    Description: DynamoDB Tasks Table Name
-    Value: !Ref TasksTable
   UsersTableName:
-    Description: DynamoDB Users Table Name
+    Description: "DynamoDB Table for Users"
     Value: !Ref UsersTable
-  TaskAssignmentTopicArn:
-    Description: SNS Topic ARN for Task Assignment Notifications
-    Value: !Ref TaskAssignmentNotificationTopic
-  TaskDeadlineTopicArn:
-    Description: SNS Topic ARN for Task Deadline Notifications
-    Value: !Ref TaskDeadlineNotificationTopic
-  ClosedTaskTopicArn:
-    Description: SNS Topic ARN for Closed Task Notifications
-    Value: !Ref ClosedTaskNotificationTopic
-  TaskCompleteTopicArn:
-    Description: SNS Topic ARN for Task Complete Notifications
-    Value: !Ref TaskCompleteNotificationTopic
-  UserOnboardingStateMachineArn:
-    Description: ARN of the User Onboarding State Machine
-    Value: !Ref UserOnboardingStateMachine
-  TaskExpiredStateMachineArn:
-    Description: ARN of the Task Expired State Machine
-    Value: !Ref TaskExpiredStateMachine
-  TaskQueueUrl:
-    Description: URL of the Task Queue
-    Value: !Ref TaskQueue
-  DeadLetterQueueUrl:
-    Description: URL of the Dead Letter Queue
-    Value: !Ref DeadLetterQueue
+
+  TasksTableName:
+    Description: "DynamoDB Table for Tasks"
+    Value: !Ref TasksTable
+
+  TaskAssignmentQueueUrl:
+    Description: "SQS Queue URL for Task Assignments"
+    Value: !Ref TaskAssignmentQueue
+
   ExpiredTasksQueueUrl:
-    Description: URL of the Expired Tasks Queue
+    Description: "SQS Queue URL for Expired Tasks"
     Value: !Ref ExpiredTasksQueue
+
+  TaskAssignmentNotificationTopicArn:
+    Description: "SNS Topic ARN for Task Assignment Notifications"
+    Value: !Ref TaskAssignmentNotificationTopic
+
+  TaskDeadlineNotificationTopicArn:
+    Description: "SNS Topic ARN for Task Deadline Notifications"
+    Value: !Ref TaskDeadlineNotificationTopic
+
+  ClosedTaskNotificationTopicArn:
+    Description: "SNS Topic ARN for Closed Task Notifications"
+    Value: !Ref ClosedTaskNotificationTopic
+
+  TaskCompleteNotificationTopicArn:
+    Description: "SNS Topic ARN for Task Complete Notifications"
+    Value: !Ref TaskCompleteNotificationTopic
+
+  UserOnboardingStepFunctionArn:
+    Description: "Step Function ARN for User Onboarding"
+    Value: !GetAtt UserOnboardingStepFunction.Arn
+
+  # TaskExpirationStepFunctionArn:
+  #   Description: "Step Function ARN for Task Expiration"
+  #   Value: !GetAtt TaskExpirationStepFunction.Arn

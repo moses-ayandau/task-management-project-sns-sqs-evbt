@@ -1,8 +1,8 @@
 {
-    "Comment": "User Onboarding State Machine that subscribes users to required SNS topics",
-    "StartAt": "SubscribeToTopics",
+    "Comment": "A state machine that handles the user onboarding process and SNS topic subscriptions",
+    "StartAt": "SubscribeToSNSTopics",
     "States": {
-      "SubscribeToTopics": {
+      "SubscribeToSNSTopics": {
         "Type": "Parallel",
         "Branches": [
           {
@@ -12,13 +12,9 @@
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:subscribe",
                 "Parameters": {
-                  "TopicArn": "${TaskAssignmentTopicArn}",
+                  "TopicArn": "${TaskAssignmentNotificationTopicArn}",
                   "Protocol": "email",
-                  "Endpoint.$": "$.email",
-                  "FilterPolicy": {
-                    "assignedTo": ["${$.userId}"]
-                  },
-                  "ReturnSubscriptionArn": true
+                  "Endpoint.$": "$.email"
                 },
                 "End": true
               }
@@ -31,13 +27,9 @@
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:subscribe",
                 "Parameters": {
-                  "TopicArn": "${TaskDeadlineTopicArn}",
+                  "TopicArn": "${TaskDeadlineNotificationTopicArn}",
                   "Protocol": "email",
-                  "Endpoint.$": "$.email",
-                  "FilterPolicy": {
-                    "assignedTo": ["${$.userId}"]
-                  },
-                  "ReturnSubscriptionArn": true
+                  "Endpoint.$": "$.email"
                 },
                 "End": true
               }
@@ -50,19 +42,32 @@
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:subscribe",
                 "Parameters": {
-                  "TopicArn": "${ClosedTaskTopicArn}",
+                  "TopicArn": "${ClosedTaskNotificationTopicArn}",
                   "Protocol": "email",
-                  "Endpoint.$": "$.email",
-                  "FilterPolicy": {
-                    "assignedTo": ["${$.userId}"]
-                  },
-                  "ReturnSubscriptionArn": true
+                  "Endpoint.$": "$.email"
                 },
                 "End": true
               }
             }
           }
         ],
+        "Next": "SendWelcomeEmail"
+      },
+      "SendWelcomeEmail": {
+        "Type": "Task",
+        "Resource": "arn:aws:states:::sns:publish",
+        "Parameters": {
+          "TopicArn": "${TaskAssignmentNotificationTopicArn}",
+          "Message": {
+            "default.$": "States.Format('Welcome to the Task Management System, {}! Your account has been created.', $.name)"
+          },
+          "MessageAttributes": {
+            "email": {
+              "DataType": "String",
+              "StringValue.$": "$.email"
+            }
+          }
+        },
         "End": true
       }
     }
