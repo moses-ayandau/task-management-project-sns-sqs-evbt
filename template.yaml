@@ -177,12 +177,12 @@ Resources:
       Environment:
         Variables:
           USERS_TABLE: !Ref UsersTable
-          USER_ONBOARDING_STEP_FUNCTION_ARN: !GetAtt UserOnboardingStepFunction.Arn
+          # USER_ONBOARDING_STEP_FUNCTION_ARN: !GetAtt UserOnboardingStepFunction.Arn
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
-        - StepFunctionsExecutionPolicy:
-            StateMachineName: !GetAtt UserOnboardingStepFunction.Name
+        # - StepFunctionsExecutionPolicy:
+            # StateMachineName: !GetAtt UserOnboardingStepFunction.Name
 
   CreateTaskFunction:
     Type: AWS::Serverless::Function
