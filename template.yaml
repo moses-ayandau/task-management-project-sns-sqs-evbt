@@ -44,11 +44,24 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Environment
-      Auth:
-        DefaultAuthorizer: CognitoAuthorizer
-        Authorizers:
-          CognitoAuthorizer:
-            UserPoolArn: !GetAtt UserPool.Arn
+    DependsOn:
+      - UserPool
+      - UserPoolClient
+      
+
+
+  ApiGatewayAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: CognitoAuthorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - !GetAtt UserPool.Arn
+      RestApiId: !Ref TaskManagementApi
+    DependsOn:
+      - TaskManagementApi
+      - UserPool
 
   # Cognito User Pool for authentication
   UserPool:
@@ -93,6 +106,7 @@ Resources:
         - ALLOW_REFRESH_TOKEN_AUTH
       GenerateSecret: false
 
+  
   # DynamoDB Tables
   TasksTable:
     Type: AWS::DynamoDB::Table
@@ -250,6 +264,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks
             Method: POST
+            Auth:
+              Authorizer: !Ref ApiGatewayAuthorizer
 
   TaskAssignmentProcessorFunction:
     Type: AWS::Serverless::Function
@@ -310,6 +326,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks/{taskId}
             Method: PUT
+            Auth:
+              Authorizer: !Ref ApiGatewayAuthorizer
 
   TaskReassignmentFunction:
     Type: AWS::Serverless::Function
@@ -329,6 +347,8 @@ Resources:
             RestApiId: !Ref TaskManagementApi
             Path: /tasks/{taskId}/reassign
             Method: PUT
+            Auth:
+              Authorizer: !Ref ApiGatewayAuthorizer
 
   # Step Functions
   UserOnboardingStateMachine:
