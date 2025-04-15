@@ -29,73 +29,9 @@ Globals:
     Environment:
       Variables:
         ENVIRONMENT: !Ref Environment
-        USER_POOL_ID: !Ref UserPool
-        USER_POOL_CLIENT_ID: !Ref UserPoolClient
-        TASK_TABLE_NAME: !Ref TasksTable
-        USER_TABLE_NAME: !Ref UsersTable
-        TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
-        TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-        CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
-        TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
-        TASK_QUEUE_URL: !Ref TaskQueue
-        DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
 
 Resources:
-  # API Gateway
-  TaskManagementApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: !Ref Environment
-      Auth:
-        DefaultAuthorizer: CognitoAuthorizer
-        Authorizers:
-          CognitoAuthorizer:
-            UserPoolArn: !GetAtt UserPool.Arn
-
-  # Cognito User Pool for authentication
-  UserPool:
-    Type: AWS::Cognito::UserPool
-    Properties:
-      UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
-      AutoVerifiedAttributes:
-        - email
-      Schema:
-        - Name: email
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: name
-          AttributeDataType: String
-          Mutable: true
-          Required: true
-        - Name: custom:role
-          AttributeDataType: String
-          Mutable: true
-          Required: false
-      Policies:
-        PasswordPolicy:
-          MinimumLength: 8
-          RequireLowercase: true
-          RequireNumbers: true
-          RequireSymbols: true
-          RequireUppercase: true
-      AdminCreateUserConfig:
-        AllowAdminCreateUserOnly: true
-        InviteMessageTemplate:
-          EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
-          EmailSubject: "Your task management system login information"
-
-  UserPoolClient:
-    Type: AWS::Cognito::UserPoolClient
-    Properties:
-      ClientName: !Sub 'TaskManagementClient-${Environment}'
-      UserPoolId: !Ref UserPool
-      ExplicitAuthFlows:
-        - ALLOW_USER_PASSWORD_AUTH
-        - ALLOW_REFRESH_TOKEN_AUTH
-      GenerateSecret: false
-
-  # DynamoDB Tables
+  # DynamoDB Tables first (no dependencies)
   TasksTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -138,7 +74,7 @@ Resources:
           Projection:
             ProjectionType: ALL
 
-  # SNS Topics for notifications
+  # SNS Topics for notifications (no dependencies)
   TaskAssignmentNotificationTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -163,7 +99,15 @@ Resources:
       TopicName: !Sub 'TaskCompleteNotificationTopic-${Environment}'
       DisplayName: 'Task Complete Notifications'
 
-  # SQS Queues
+  # SQS Queues (DeadLetterQueue has no dependencies)
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'TaskDLQ-${Environment}.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: true
+
+  # Now Task Queue depends on DeadLetterQueue
   TaskQueue:
     Type: AWS::SQS::Queue
     Properties:
@@ -174,12 +118,10 @@ Resources:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 3
 
-  DeadLetterQueue:
+  ExpiredTasksDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub 'TaskDLQ-${Environment}.fifo'
-      FifoQueue: true
-      ContentBasedDeduplication: true
+      QueueName: !Sub 'ExpiredTasksDLQ-${Environment}'
 
   ExpiredTasksQueue:
     Type: AWS::SQS::Queue
@@ -189,10 +131,62 @@ Resources:
         deadLetterTargetArn: !GetAtt ExpiredTasksDLQ.Arn
         maxReceiveCount: 3
 
-  ExpiredTasksDLQ:
-    Type: AWS::SQS::Queue
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
     Properties:
-      QueueName: !Sub 'ExpiredTasksDLQ-${Environment}'
+      UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: custom:role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
+          EmailSubject: "Your task management system login information"
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'TaskManagementClient-${Environment}'
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+  # API Gateway with Cognito Authenticator - Breaking dependencies by creating this before Lambda functions
+  TaskManagementApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+      # Important: Removing automatic deployment to break circular dependency
+      # We'll add a manual deployment later
+      TracingEnabled: true
 
   # Subscribe Admin to Required Topics
   AdminClosedTaskSubscription:
@@ -210,8 +204,11 @@ Resources:
       Endpoint: !Ref AdminEmail
 
   # Lambda Functions
+  # Adding environment variables directly rather than using the global
+  # This breaks circular dependencies by explicitly declaring them
   UserSignupFunction:
     Type: AWS::Serverless::Function
+    DependsOn: UserPool
     Properties:
       FunctionName: !Sub User-signup-${Environment}
       CodeUri: HelloWorldFunction/
@@ -219,6 +216,9 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
           USER_TABLE_NAME: !Ref UsersTable
           TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
           TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
@@ -236,42 +236,89 @@ Resources:
   TaskCreationFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-creation -${Environment}
+      FunctionName: !Sub Task-creation-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskCreationHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Policies:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt TaskQueue.QueueName
-      Events:
-        CreateTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks
-            Method: POST
+
+  # Separate API event definition using explicit definitions rather than Events
+  TaskCreationFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: 
+      - TaskManagementApi
+      - TaskCreationFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TaskCreationFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/*/POST/tasks'
 
   TaskAssignmentProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-assignment-processor -${Environment}
+      FunctionName: !Sub Task-assignment-processor-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskAssignmentProcessorHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Policies:
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-      Events:
-        SQSEvent:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt TaskQueue.Arn
-            BatchSize: 1
+
+  # Separate event source mapping to break circular dependencies
+  TaskQueueEventMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt TaskQueue.Arn
+      FunctionName: !GetAtt TaskAssignmentProcessorFunction.Arn
 
   DeadlineNotifierFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Deadline-notifier -${Environment}
+      FunctionName: !Sub Deadline-notifier-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.DeadlineNotifierHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Policies:
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
@@ -281,55 +328,201 @@ Resources:
   TaskExpiredProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-expired-processor -${Environment}
+      FunctionName: !Sub Task-expired-processor-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskExpiredProcessorHandler::handleRequest
-      Events:
-        ExpiredTasksQueue:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt ExpiredTasksQueue.Arn
-            BatchSize: 1
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+
+  # Separate event source mapping
+  ExpiredTasksQueueEventMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt ExpiredTasksQueue.Arn
+      FunctionName: !GetAtt TaskExpiredProcessorFunction.Arn
 
   TaskStatusUpdateFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-status-update -${Environment}
+      FunctionName: !Sub Task-status-update-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskStatusUpdateHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskCompleteNotificationTopic.TopicName
-      Events:
-        UpdateTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks/{taskId}
-            Method: PUT
+
+  # Separate API permission definition
+  TaskStatusUpdateFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: 
+      - TaskManagementApi
+      - TaskStatusUpdateFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TaskStatusUpdateFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/*/PUT/tasks/{taskId}'
 
   TaskReassignmentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-reassignment -${Environment}
+      FunctionName: !Sub Task-reassignment-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskReassignmentHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          TASK_TABLE_NAME: !Ref TasksTable
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref TasksTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-      Events:
-        ReassignTaskAPI:
-          Type: Api
-          Properties:
-            RestApiId: !Ref TaskManagementApi
-            Path: /tasks/{taskId}/reassign
-            Method: PUT
 
-  # Step Functions
+  # Separate API permission definition
+  TaskReassignmentFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: 
+      - TaskManagementApi
+      - TaskReassignmentFunction
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref TaskReassignmentFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/*/PUT/tasks/{taskId}/reassign'
+
+  # API Gateway Resource Definitions to break circular dependencies
+  TasksResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ParentId: !GetAtt TaskManagementApi.RootResourceId
+      PathPart: 'tasks'
+
+  TaskByIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ParentId: !Ref TasksResource
+      PathPart: '{taskId}'
+
+  TaskReassignResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ParentId: !Ref TaskByIdResource
+      PathPart: 'reassign'
+
+  # Method definitions
+  CreateTaskMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: TaskCreationFunctionApiPermission
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ResourceId: !Ref TasksResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskCreationFunction.Arn}/invocations'
+
+  UpdateTaskMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: TaskStatusUpdateFunctionApiPermission
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ResourceId: !Ref TaskByIdResource
+      HttpMethod: PUT
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskStatusUpdateFunction.Arn}/invocations'
+
+  ReassignTaskMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: TaskReassignmentFunctionApiPermission
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      ResourceId: !Ref TaskReassignResource
+      HttpMethod: PUT
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskReassignmentFunction.Arn}/invocations'
+
+  # Cognito Authorizer
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      Name: CognitoAuthorizer
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - !GetAtt UserPool.Arn
+
+  # Manual API Deployment and Stage
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - CreateTaskMethod
+      - UpdateTaskMethod
+      - ReassignTaskMethod
+    Properties:
+      RestApiId: !Ref TaskManagementApi
+      Description: Production deployment
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref ApiDeployment
+      RestApiId: !Ref TaskManagementApi
+      StageName: !Ref Environment
+
+  # Step Functions with explicit ARNs to break circular dependencies
   UserOnboardingStateMachine:
     Type: AWS::Serverless::StateMachine
     Properties:
