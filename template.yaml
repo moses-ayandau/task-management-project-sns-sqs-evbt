@@ -3,7 +3,6 @@ Transform: AWS::Serverless-2016-10-31
 Description: Task Management System with User Management, Tasks, SQS and SNS integration
 
 Resources:
-  # DynamoDB Tables
   UsersTable:
     Type: AWS::DynamoDB::Table
     Properties:
