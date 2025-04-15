@@ -1,14 +1,14 @@
 {
-    "Comment": "User Onboarding Workflow",
-    "StartAt": "SubscribeToSNSTopics",
+    "Comment": "Simplified User Onboarding",
+    "StartAt": "SubscribeToNotifications",
     "States": {
-      "SubscribeToSNSTopics": {
+      "SubscribeToNotifications": {
         "Type": "Parallel",
         "Branches": [
           {
-            "StartAt": "SubscribeToTaskAssignmentTopic",
+            "StartAt": "SubscribeToTaskTopic",
             "States": {
-              "SubscribeToTaskAssignmentTopic": {
+              "SubscribeToTaskTopic": {
                 "Type": "Task",
                 "Resource": "arn:aws:states:::lambda:invoke",
                 "Parameters": {
@@ -16,44 +16,6 @@
                   "Payload": {
                     "action": "subscribe",
                     "topicArn": "${TaskAssignmentNotificationTopicArn}",
-                    "protocol": "email",
-                    "endpoint.$": "$.email"
-                  }
-                },
-                "End": true
-              }
-            }
-          },
-          {
-            "StartAt": "SubscribeToTaskDeadlineTopic",
-            "States": {
-              "SubscribeToTaskDeadlineTopic": {
-                "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
-                "Parameters": {
-                  "FunctionName": "${SubscribeFunctionArn}",
-                  "Payload": {
-                    "action": "subscribe",
-                    "topicArn": "${TaskDeadlineNotificationTopicArn}",
-                    "protocol": "email",
-                    "endpoint.$": "$.email"
-                  }
-                },
-                "End": true
-              }
-            }
-          },
-          {
-            "StartAt": "SubscribeToClosedTaskTopic",
-            "States": {
-              "SubscribeToClosedTaskTopic": {
-                "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
-                "Parameters": {
-                  "FunctionName": "${SubscribeFunctionArn}",
-                  "Payload": {
-                    "action": "subscribe",
-                    "topicArn": "${ClosedTaskNotificationTopicArn}",
                     "protocol": "email",
                     "endpoint.$": "$.email"
                   }
@@ -71,13 +33,7 @@
         "Parameters": {
           "TopicArn": "${TaskAssignmentNotificationTopicArn}",
           "Message": {
-            "default.$": "States.Format('Welcome to the Task Management System, {}! Your account has been created.', $.name)"
-          },
-          "MessageAttributes": {
-            "email": {
-              "DataType": "String",
-              "StringValue.$": "$.email"
-            }
+            "default.$": "States.Format('Welcome {}, to our platform!', $.name)"
           }
         },
         "End": true
