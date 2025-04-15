@@ -130,39 +130,39 @@ Resources:
 
   # Step Functions
  
-  UserOnboardingStepFunction:
-    Type: AWS::Serverless::StateMachine
-    Properties:
-      DefinitionUri: statemachines/user-onboarding.asl.json
-      DefinitionSubstitutions:
-        TaskAssignmentNotificationTopicArn: !Ref TaskAssignmentNotificationTopic
-        TaskDeadlineNotificationTopicArn: !Ref TaskDeadlineNotificationTopic
-        ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
-        SubscribeFunctionArn: !GetAtt SubscribeToSNSTopicsFunction.Arn
-      Policies:
-        - LambdaInvokePolicy:
-            FunctionName: !Ref SubscribeToSNSTopicsFunction
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-  TaskExpirationStepFunction:
-    Type: AWS::Serverless::StateMachine
-    Properties:
-      DefinitionUri: statemachines/task-expiration.asl.json
-      DefinitionSubstitutions:
-        UsersTableName: !Ref UsersTable
-        TasksTableName: !Ref TasksTable
-        ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref TasksTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+  # UserOnboardingStepFunction:
+  #   Type: AWS::Serverless::StateMachine
+  #   Properties:
+  #     DefinitionUri: statemachines/user-onboarding.asl.json
+  #     DefinitionSubstitutions:
+  #       TaskAssignmentNotificationTopicArn: !Ref TaskAssignmentNotificationTopic
+  #       TaskDeadlineNotificationTopicArn: !Ref TaskDeadlineNotificationTopic
+  #       ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
+  #       SubscribeFunctionArn: !GetAtt SubscribeToSNSTopicsFunction.Arn
+  #     Policies:
+  #       - LambdaInvokePolicy:
+  #           FunctionName: !Ref SubscribeToSNSTopicsFunction
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+  # TaskExpirationStepFunction:
+  #   Type: AWS::Serverless::StateMachine
+  #   Properties:
+  #     DefinitionUri: statemachines/task-expiration.asl.json
+  #     DefinitionSubstitutions:
+  #       UsersTableName: !Ref UsersTable
+  #       TasksTableName: !Ref TasksTable
+  #       ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref UsersTable
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref TasksTable
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
 
   # Lambda Functions
   CreateUserFunction:
@@ -274,74 +274,74 @@ Resources:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt TaskAssignmentQueue.QueueName
 
-  ProcessExpiredTaskFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: HelloWorldFunction/
-      Handler: helloworld.TaskExpiredProcessor::handleRequest
-      Runtime: java21
-      Architectures:
-        - x86_64
-      MemorySize: 512
-      Timeout: 30
-      Environment:
-        Variables:
-          TASK_EXPIRATION_STEP_FUNCTION_ARN: !GetAtt TaskExpirationStepFunction.Arn
-      Events:
-        SQSEvent:
-          Type: SQS
-          Properties:
-            Queue: !GetAtt ExpiredTasksQueue.Arn
-            BatchSize: 1
-      Policies:
-        - StepFunctionsExecutionPolicy:
-            StateMachineName: !GetAtt TaskExpirationStepFunction.Name
+  # ProcessExpiredTaskFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: HelloWorldFunction/
+  #     Handler: helloworld.TaskExpiredProcessor::handleRequest
+  #     Runtime: java21
+  #     Architectures:
+  #       - x86_64
+  #     MemorySize: 512
+  #     Timeout: 30
+  #     Environment:
+  #       Variables:
+  #         TASK_EXPIRATION_STEP_FUNCTION_ARN: !GetAtt TaskExpirationStepFunction.Arn
+  #     Events:
+  #       SQSEvent:
+  #         Type: SQS
+  #         Properties:
+  #           Queue: !GetAtt ExpiredTasksQueue.Arn
+  #           BatchSize: 1
+  #     Policies:
+  #       - StepFunctionsExecutionPolicy:
+  #           StateMachineName: !GetAtt TaskExpirationStepFunction.Name
 
-  # EventBridge Scheduler Rule for Task Deadlines
-  TaskDeadlineScheduler:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: HelloWorldFunction/
-      Handler: helloworld.DeadlineNotificationHandler::handleRequest
-      Runtime: java21
-      Architectures:
-        - x86_64
-      MemorySize: 512
-      Timeout: 30
-      Environment:
-        Variables:
-          TASKS_TABLE: !Ref TasksTable
-          TASK_DEADLINE_NOTIFICATION_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-          EXPIRED_TASKS_QUEUE_URL: !Ref ExpiredTasksQueue
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref TasksTable
-        - SNSPublishMessagePolicy:
-            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt ExpiredTasksQueue.QueueName
+  # # EventBridge Scheduler Rule for Task Deadlines
+  # TaskDeadlineScheduler:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     CodeUri: HelloWorldFunction/
+  #     Handler: helloworld.DeadlineNotificationHandler::handleRequest
+  #     Runtime: java21
+  #     Architectures:
+  #       - x86_64
+  #     MemorySize: 512
+  #     Timeout: 30
+  #     Environment:
+  #       Variables:
+  #         TASKS_TABLE: !Ref TasksTable
+  #         TASK_DEADLINE_NOTIFICATION_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+  #         EXPIRED_TASKS_QUEUE_URL: !Ref ExpiredTasksQueue
+  #     Policies:
+  #       - DynamoDBCrudPolicy:
+  #           TableName: !Ref TasksTable
+  #       - SNSPublishMessagePolicy:
+  #           TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+  #       - SQSSendMessagePolicy:
+  #           QueueName: !GetAtt ExpiredTasksQueue.QueueName
 
-  # EventBridge Scheduler Role
-  EventBridgeSchedulerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: scheduler.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonEventBridgeSchedulerFullAccess
-      Policies:
-        - PolicyName: InvokeLambdaPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: lambda:InvokeFunction
-                Resource: !GetAtt TaskDeadlineScheduler.Arn
+  # # EventBridge Scheduler Role
+  # EventBridgeSchedulerRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service: scheduler.amazonaws.com
+  #           Action: sts:AssumeRole
+  #     ManagedPolicyArns:
+  #       - arn:aws:iam::aws:policy/AmazonEventBridgeSchedulerFullAccess
+  #     Policies:
+  #       - PolicyName: InvokeLambdaPolicy
+  #         PolicyDocument:
+  #           Version: '2012-10-17'
+  #           Statement:
+  #             - Effect: Allow
+  #               Action: lambda:InvokeFunction
+  #               Resource: !GetAtt TaskDeadlineScheduler.Arn
 
 Outputs:
   UsersTableName:
@@ -376,10 +376,10 @@ Outputs:
     Description: "SNS Topic ARN for Task Complete Notifications"
     Value: !Ref TaskCompleteNotificationTopic
 
-  UserOnboardingStepFunctionArn:
-    Description: "Step Function ARN for User Onboarding"
-    Value: !GetAtt UserOnboardingStepFunction.Arn
+  # UserOnboardingStepFunctionArn:
+  #   Description: "Step Function ARN for User Onboarding"
+  #   Value: !GetAtt UserOnboardingStepFunction.Arn
 
-  TaskExpirationStepFunctionArn:
-    Description: "Step Function ARN for Task Expiration"
-    Value: !GetAtt TaskExpirationStepFunction.Arn
+  # TaskExpirationStepFunctionArn:
+  #   Description: "Step Function ARN for Task Expiration"
+  #   Value: !GetAtt TaskExpirationStepFunction.Arn
