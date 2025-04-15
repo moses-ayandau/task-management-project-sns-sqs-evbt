@@ -44,24 +44,20 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: !Ref Environment
-    DependsOn:
-      - UserPool
-      - UserPoolClient
+      Auth:
+        DefaultAuthorizer: CognitoAuthorizer
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+            Identity:
+              Header: Authorization
+      # Explicit dependencies to ensure UserPool exists first
+      DependsOn:
+        - UserPool
+        - UserPoolClient
       
 
 
-  ApiGatewayAuthorizer:
-    Type: AWS::ApiGateway::Authorizer
-    Properties:
-      Name: CognitoAuthorizer
-      Type: COGNITO_USER_POOLS
-      IdentitySource: method.request.header.Authorization
-      ProviderARNs:
-        - !GetAtt UserPool.Arn
-      RestApiId: !Ref TaskManagementApi
-    DependsOn:
-      - TaskManagementApi
-      - UserPool
 
   # Cognito User Pool for authentication
   UserPool:
@@ -265,7 +261,7 @@ Resources:
             Path: /tasks
             Method: POST
             Auth:
-              Authorizer: !Ref ApiGatewayAuthorizer
+              Authorizer: CognitoAuthorizer
 
   TaskAssignmentProcessorFunction:
     Type: AWS::Serverless::Function
@@ -327,7 +323,7 @@ Resources:
             Path: /tasks/{taskId}
             Method: PUT
             Auth:
-              Authorizer: !Ref ApiGatewayAuthorizer
+              Authorizer: CognitoAuthorizer
 
   TaskReassignmentFunction:
     Type: AWS::Serverless::Function
@@ -348,7 +344,7 @@ Resources:
             Path: /tasks/{taskId}/reassign
             Method: PUT
             Auth:
-              Authorizer: !Ref ApiGatewayAuthorizer
+              Authorizer: CognitoAuthorizer
 
   # Step Functions
   UserOnboardingStateMachine:
