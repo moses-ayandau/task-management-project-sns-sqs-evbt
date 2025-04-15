@@ -10,11 +10,15 @@
             "States": {
               "SubscribeToTaskAssignmentTopic": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::sns:subscribe",
+                "Resource": "arn:aws:states:::lambda:invoke",
                 "Parameters": {
-                  "TopicArn": "${TaskAssignmentNotificationTopicArn}",
-                  "Protocol": "email",
-                  "Endpoint.$": "$.email"
+                  "FunctionName": "${SubscribeFunctionArn}",
+                  "Payload": {
+                    "action": "subscribe",
+                    "topicArn": "${TaskAssignmentNotificationTopicArn}",
+                    "protocol": "email",
+                    "endpoint.$": "$.email"
+                  }
                 },
                 "End": true
               }
@@ -25,11 +29,15 @@
             "States": {
               "SubscribeToTaskDeadlineTopic": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::sns:subscribe",
+                "Resource": "arn:aws:states:::lambda:invoke",
                 "Parameters": {
-                  "TopicArn": "${TaskDeadlineNotificationTopicArn}",
-                  "Protocol": "email",
-                  "Endpoint.$": "$.email"
+                  "FunctionName": "${SubscribeFunctionArn}",
+                  "Payload": {
+                    "action": "subscribe",
+                    "topicArn": "${TaskDeadlineNotificationTopicArn}",
+                    "protocol": "email",
+                    "endpoint.$": "$.email"
+                  }
                 },
                 "End": true
               }
@@ -40,11 +48,15 @@
             "States": {
               "SubscribeToClosedTaskTopic": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::sns:subscribe",
+                "Resource": "arn:aws:states:::lambda:invoke",
                 "Parameters": {
-                  "TopicArn": "${ClosedTaskNotificationTopicArn}",
-                  "Protocol": "email",
-                  "Endpoint.$": "$.email"
+                  "FunctionName": "${SubscribeFunctionArn}",
+                  "Payload": {
+                    "action": "subscribe",
+                    "topicArn": "${ClosedTaskNotificationTopicArn}",
+                    "protocol": "email",
+                    "endpoint.$": "$.email"
+                  }
                 },
                 "End": true
               }

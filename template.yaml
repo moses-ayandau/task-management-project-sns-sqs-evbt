@@ -73,6 +73,22 @@ Resources:
       TopicName: TaskCompleteNotificationTopic
       DisplayName: Task Complete Notification
 
+
+  SubscribeToSNSTopicsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: helloWorldFunction/
+      Handler: helloworld.SNSSubscriptionHandler::handleRequest
+      Runtime: java21
+      Policies:
+        - SNSSendMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+        - SNSSendMessagePolicy:
+            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+        - SNSSendMessagePolicy:
+            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+
+
   # SQS Queues
   TaskAssignmentQueue:
     Type: AWS::SQS::Queue
@@ -107,6 +123,7 @@ Resources:
       QueueName: ExpiredTasksDLQ
 
   # Step Functions
+ 
   UserOnboardingStepFunction:
     Type: AWS::Serverless::StateMachine
     Properties:
@@ -115,14 +132,16 @@ Resources:
         TaskAssignmentNotificationTopicArn: !Ref TaskAssignmentNotificationTopic
         TaskDeadlineNotificationTopicArn: !Ref TaskDeadlineNotificationTopic
         ClosedTaskNotificationTopicArn: !Ref ClosedTaskNotificationTopic
+        SubscribeFunctionArn: !GetAtt SubscribeToSNSTopicsFunction.Arn
       Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref SubscribeToSNSTopicsFunction
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-
   TaskExpirationStepFunction:
     Type: AWS::Serverless::StateMachine
     Properties:
