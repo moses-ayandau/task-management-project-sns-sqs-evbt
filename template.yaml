@@ -213,9 +213,19 @@ Resources:
   UserSignupFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub User-signup -${Environment}
+      FunctionName: !Sub User-signup-${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.UserSignupHandler::handleRequest
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
       Events:
         CognitoPostConfirmation:
           Type: Cognito
