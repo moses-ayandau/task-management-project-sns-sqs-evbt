@@ -1,0 +1,63 @@
+{
+    "Comment": "Task Expired State Machine that handles expired tasks",
+    "StartAt": "ParallelProcessing",
+    "States": {
+      "ParallelProcessing": {
+        "Type": "Parallel",
+        "Branches": [
+          {
+            "StartAt": "UpdateTaskStatus",
+            "States": {
+              "UpdateTaskStatus": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::dynamodb:updateItem",
+                "Parameters": {
+                  "TableName": "${TasksTableName}",
+                  "Key": {
+                    "taskId": {
+                      "S.$": "$.taskId"
+                    }
+                  },
+                  "UpdateExpression": "SET #status = :status, updatedAt = :now",
+                  "ExpressionAttributeNames": {
+                    "#status": "status"
+                  },
+                  "ExpressionAttributeValues": {
+                    ":status": {
+                      "S": "expired"
+                    },
+                    ":now": {
+                      "N.$": "$$.State.EnteredTime"
+                    }
+                  }
+                },
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "NotifyAssigneeAndAdmin",
+            "States": {
+              "NotifyAssigneeAndAdmin": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:publish",
+                "Parameters": {
+                  "TopicArn": "${ClosedTaskTopicArn}",
+                  "Subject.$": "States.Format('Task Expired: {}', $.name)",
+                  "Message.$": "States.Format('The following task has expired:\n\nTask ID: {}\nName: {}\nDescription: {}\nAssigned To: {}\n\nThis task has been automatically closed due to missing the deadline. Please contact an administrator if you need this task to be reopened.', $.taskId, $.name, $.description, $.assignedTo)",
+                  "MessageAttributes": {
+                    "assignedTo": {
+                      "DataType": "String",
+                      "StringValue.$": "$.assignedTo"
+                    }
+                  }
+                },
+                "End": true
+              }
+            }
+          }
+        ],
+        "End": true
+      }
+    }
+  }

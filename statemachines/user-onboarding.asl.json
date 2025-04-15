@@ -1,0 +1,69 @@
+{
+    "Comment": "User Onboarding State Machine that subscribes users to required SNS topics",
+    "StartAt": "SubscribeToTopics",
+    "States": {
+      "SubscribeToTopics": {
+        "Type": "Parallel",
+        "Branches": [
+          {
+            "StartAt": "SubscribeToTaskAssignmentTopic",
+            "States": {
+              "SubscribeToTaskAssignmentTopic": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:subscribe",
+                "Parameters": {
+                  "TopicArn": "${TaskAssignmentTopicArn}",
+                  "Protocol": "email",
+                  "Endpoint.$": "$.email",
+                  "FilterPolicy": {
+                    "assignedTo": ["${$.userId}"]
+                  },
+                  "ReturnSubscriptionArn": true
+                },
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "SubscribeToTaskDeadlineTopic",
+            "States": {
+              "SubscribeToTaskDeadlineTopic": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:subscribe",
+                "Parameters": {
+                  "TopicArn": "${TaskDeadlineTopicArn}",
+                  "Protocol": "email",
+                  "Endpoint.$": "$.email",
+                  "FilterPolicy": {
+                    "assignedTo": ["${$.userId}"]
+                  },
+                  "ReturnSubscriptionArn": true
+                },
+                "End": true
+              }
+            }
+          },
+          {
+            "StartAt": "SubscribeToClosedTaskTopic",
+            "States": {
+              "SubscribeToClosedTaskTopic": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:subscribe",
+                "Parameters": {
+                  "TopicArn": "${ClosedTaskTopicArn}",
+                  "Protocol": "email",
+                  "Endpoint.$": "$.email",
+                  "FilterPolicy": {
+                    "assignedTo": ["${$.userId}"]
+                  },
+                  "ReturnSubscriptionArn": true
+                },
+                "End": true
+              }
+            }
+          }
+        ],
+        "End": true
+      }
+    }
+  }
