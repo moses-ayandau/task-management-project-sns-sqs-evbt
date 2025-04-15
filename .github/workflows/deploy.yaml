@@ -1,0 +1,92 @@
+name: Deploy Task Management System
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev]  # Add test, prod as needed
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      - name: Build with Maven
+        run: mvn clean package
+        working-directory: ./task-management-system
+
+      - name: Set up AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Install SAM CLI
+        run: |
+          pip install aws-sam-cli
+
+      - name: Build SAM Application
+        run: |
+          cd HelloWorldFunction
+          mvn clean package
+          cd ..
+          sam build
+
+      - name: SAM Deploy
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          COGNITO_USER_POOL_NAME: TaskManagementUserPool
+        run: |
+          sam deploy \
+            --stack-name task-management-${{ matrix.environment }} \
+            --parameter-overrides \
+              Environment=$ENVIRONMENT \
+              CognitoUserPoolName=$COGNITO_USER_POOL_NAME \
+              AdminEmail=$ADMIN_EMAIL \
+            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset \
+            --no-confirm-changeset
+
+      - name: Get deployment outputs
+        if: success()
+        id: outputs
+        run: |
+          OUTPUTS=$(aws cloudformation describe-stacks \
+            --stack-name task-management-${{ matrix.environment }} \
+            --query "Stacks[0].Outputs" \
+            --output json)
+          echo "Stack outputs:"
+          echo "$OUTPUTS" | jq -r '.[] | "  \(.OutputKey): \(.OutputValue)"'
+          echo "Deployment successful ✅"
+          
+          # Display important endpoints
+          API_ENDPOINT=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="ApiEndpoint") | .OutputValue')
+          echo "API_ENDPOINT=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "API Endpoint: $API_ENDPOINT"
+
+      - name: Create deployment summary
+        if: success()
+        run: |
+          echo "## Deployment Summary for ${{ matrix.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Endpoint:** ${{ steps.outputs.outputs.API_ENDPOINT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Stack Name:** task-management-${{ matrix.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Deployment completed successfully ✅" >> $GITHUB_STEP_SUMMARY
