@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SAM Template for Task Management System - API and Functions
+Description: SAM Template for Task Management System using Java Spring Boot
 
 Parameters:
   Environment:
@@ -12,16 +12,33 @@ Parameters:
       - prod
     Description: Environment to deploy resources to
 
-  CoreStackName:
+  CognitoUserPoolName:
     Type: String
-    Default: task-management-core-dev
-    Description: Name of the core infrastructure CloudFormation stack
+    Default: TaskManagementUserPool
+    Description: Name for the Cognito User Pool
+
+  AdminEmail:
+    Type: String
+    Description: Email address of the admin user
 
 Globals:
   Function:
     Timeout: 30
     MemorySize: 512
     Runtime: java21
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        USER_POOL_ID: !Ref UserPool
+        USER_POOL_CLIENT_ID: !Ref UserPoolClient
+        TASK_TABLE_NAME: !Ref TasksTable
+        USER_TABLE_NAME: !Ref UsersTable
+        TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+        TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+        CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+        TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+        TASK_QUEUE_URL: !Ref TaskQueue
+        DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
 
 Resources:
   # API Gateway
@@ -33,37 +50,164 @@ Resources:
         DefaultAuthorizer: CognitoAuthorizer
         Authorizers:
           CognitoAuthorizer:
-            UserPoolArn: 
-              Fn::ImportValue: !Sub '${CoreStackName}-UserPoolArn'
-      DefinitionBody:
-        swagger: '2.0'
-        info:
-          title: TaskManagementApi
-        paths:
-          /tasks:
-            post:
-              x-amazon-apigateway-integration:
-                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskCreationFunction.Arn}/invocations'
-                passthroughBehavior: when_no_match
-                httpMethod: POST
-                type: aws_proxy
-              responses: {}
-          /tasks/{taskId}:
-            put:
-              x-amazon-apigateway-integration:
-                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskStatusUpdateFunction.Arn}/invocations'
-                passthroughBehavior: when_no_match
-                httpMethod: POST
-                type: aws_proxy
-              responses: {}
-          /tasks/{taskId}/reassign:
-            put:
-              x-amazon-apigateway-integration:
-                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskReassignmentFunction.Arn}/invocations'
-                passthroughBehavior: when_no_match
-                httpMethod: POST
-                type: aws_proxy
-              responses: {}
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # Cognito User Pool for authentication
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${CognitoUserPoolName}-${Environment}'
+      AutoVerifiedAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: custom:role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          RequireUppercase: true
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailMessage: "Your username is {username} and temporary password is {####}. Please login at our task management portal."
+          EmailSubject: "Your task management system login information"
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub 'TaskManagementClient-${Environment}'
+      UserPoolId: !Ref UserPool
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      GenerateSecret: false
+
+  # DynamoDB Tables
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'Tasks-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: taskId
+          AttributeType: S
+        - AttributeName: assignedTo
+          AttributeType: S
+      KeySchema:
+        - AttributeName: taskId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: AssignedToIndex
+          KeySchema:
+            - AttributeName: assignedTo
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'Users-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: EmailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # SNS Topics for notifications
+  TaskAssignmentNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'TaskAssignmentNotificationTopic-${Environment}'
+      DisplayName: 'Task Assignment Notifications'
+
+  TaskDeadlineNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'TaskDeadlineNotificationTopic-${Environment}'
+      DisplayName: 'Task Deadline Notifications'
+
+  ClosedTaskNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'ClosedTaskNotificationTopic-${Environment}'
+      DisplayName: 'Closed Task Notifications'
+
+  TaskCompleteNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'TaskCompleteNotificationTopic-${Environment}'
+      DisplayName: 'Task Complete Notifications'
+
+  # SQS Queues
+  TaskQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'TaskQueue-${Environment}.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'TaskDLQ-${Environment}.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: true
+
+  ExpiredTasksQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ExpiredTasksQueue-${Environment}'
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ExpiredTasksDLQ.Arn
+        maxReceiveCount: 3
+
+  ExpiredTasksDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'ExpiredTasksDLQ-${Environment}'
+
+  # Subscribe Admin to Required Topics
+  AdminClosedTaskSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref ClosedTaskNotificationTopic
+      Protocol: email
+      Endpoint: !Ref AdminEmail
+
+  AdminTaskCompleteSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref TaskCompleteNotificationTopic
+      Protocol: email
+      Endpoint: !Ref AdminEmail
 
   # Lambda Functions
   UserSignupFunction:
@@ -75,322 +219,145 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-        - SNSPublishPolicy:
-            TopicName: '*'
-        - SQSSendMessagePolicy:
-            QueueName: '*'
-
-  UserSignupCognitoPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref UserSignupFunction
-      Principal: cognito-idp.amazonaws.com
-      SourceArn: 
-        Fn::ImportValue: !Sub '${CoreStackName}-UserPoolArn'
+          USER_TABLE_NAME: !Ref UsersTable
+          TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+          TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+          TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+          TASK_QUEUE_URL: !Ref TaskQueue
+          DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+      Events:
+        CognitoPostConfirmation:
+          Type: Cognito
+          Properties:
+            UserPool: !Ref UserPool
+            Trigger: PostConfirmation
 
   TaskCreationFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-creation-${Environment}
+      FunctionName: !Sub Task-creation -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskCreationHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
       Policies:
         - SQSSendMessagePolicy:
-            QueueName: '*'
-        - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-
-  TaskCreationApiPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn: TaskManagementApi
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref TaskCreationFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/${Environment}/POST/tasks'
+            QueueName: !GetAtt TaskQueue.QueueName
+      Events:
+        CreateTaskAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagementApi
+            Path: /tasks
+            Method: POST
 
   TaskAssignmentProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-assignment-processor-${Environment}
+      FunctionName: !Sub Task-assignment-processor -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskAssignmentProcessorHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
       Policies:
-        - SNSPublishPolicy:
-            TopicName: '*'
-        - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-
-  TaskQueueProcessorPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref TaskAssignmentProcessorFunction
-      Principal: sqs.amazonaws.com
-      SourceArn: 
-        Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueArn'
-
-  TaskQueueEventMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      BatchSize: 1
-      Enabled: true
-      EventSourceArn: 
-        Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueArn'
-      FunctionName: !GetAtt TaskAssignmentProcessorFunction.Arn
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt TaskQueue.Arn
+            BatchSize: 1
 
   DeadlineNotifierFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Deadline-notifier-${Environment}
+      FunctionName: !Sub Deadline-notifier -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.DeadlineNotifierHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN:
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
       Policies:
-        - SNSPublishPolicy:
-            TopicName: '*'
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
         - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
+            TableName: !Ref TasksTable
 
   TaskExpiredProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-expired-processor-${Environment}
+      FunctionName: !Sub Task-expired-processor -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskExpiredProcessorHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
-      Policies:
-        - SNSPublishPolicy:
-            TopicName: '*'
-        - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-
-  ExpiredTasksQueueProcessorPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref TaskExpiredProcessorFunction
-      Principal: sqs.amazonaws.com
-      SourceArn: 
-        Fn::ImportValue: !Sub '${CoreStackName}-ExpiredTasksQueueArn'
-
-  ExpiredTasksQueueEventMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      BatchSize: 1
-      Enabled: true
-      EventSourceArn: 
-        Fn::ImportValue: !Sub '${CoreStackName}-ExpiredTasksQueueArn'
-      FunctionName: !GetAtt TaskExpiredProcessorFunction.Arn
+      Events:
+        ExpiredTasksQueue:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ExpiredTasksQueue.Arn
+            BatchSize: 1
 
   TaskStatusUpdateFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-status-update-${Environment}
+      FunctionName: !Sub Task-status-update -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskStatusUpdateHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-        - SNSPublishPolicy:
-            TopicName: '*'
-
-  TaskStatusUpdateApiPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn: TaskManagementApi
-    Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref TaskStatusUpdateFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/${Environment}/PUT/tasks/{taskId}'
+            TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskCompleteNotificationTopic.TopicName
+      Events:
+        UpdateTaskAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagementApi
+            Path: /tasks/{taskId}
+            Method: PUT
 
   TaskReassignmentFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub Task-reassignment-${Environment}
+      FunctionName: !Sub Task-reassignment -${Environment}
       CodeUri: HelloWorldFunction/
       Handler: helloworld.TaskReassignmentHandler::handleRequest
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          USER_POOL_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolId'
-          USER_POOL_CLIENT_ID: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UserPoolClientId'
-          TASK_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-          USER_TABLE_NAME: 
-            Fn::ImportValue: !Sub '${CoreStackName}-UsersTableName'
-          TASK_ASSIGNMENT_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-          TASK_DEADLINE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-          CLOSED_TASK_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-          TASK_COMPLETE_TOPIC_ARN: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskCompleteTopicArn'
-          TASK_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-TaskQueueUrl'
-          DEAD_LETTER_QUEUE_URL: 
-            Fn::ImportValue: !Sub '${CoreStackName}-DeadLetterQueueUrl'
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-        - SNSPublishPolicy:
-            TopicName: '*'
+            TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+      Events:
+        ReassignTaskAPI:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TaskManagementApi
+            Path: /tasks/{taskId}/reassign
+            Method: PUT
 
-  TaskReassignmentApiPermission:
-    Type: AWS::Lambda::Permission
-    DependsOn: TaskManagementApi
+  # Step Functions
+  UserOnboardingStateMachine:
+    Type: AWS::Serverless::StateMachine
     Properties:
-      Action: lambda:InvokeFunction
-      FunctionName: !Ref TaskReassignmentFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${TaskManagementApi}/${Environment}/PUT/tasks/{taskId}/reassign'
+      DefinitionSubstitutions:
+        TaskAssignmentTopicArn: !Ref TaskAssignmentNotificationTopic
+        TaskDeadlineTopicArn: !Ref TaskDeadlineNotificationTopic
+        ClosedTaskTopicArn: !Ref ClosedTaskNotificationTopic
+      DefinitionUri: statemachines/user-onboarding.asl.json
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
+
+  TaskExpiredStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionSubstitutions:
+        TasksTableName: !Ref TasksTable
+        ClosedTaskTopicArn: !Ref ClosedTaskNotificationTopic
+      DefinitionUri: statemachines/task-expired.asl.json
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
 
   # EventBridge Rule for task deadline notifications
   DeadlineSchedulerRule:
@@ -411,37 +378,6 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt DeadlineSchedulerRule.Arn
 
-  # Step Functions
-  UserOnboardingStateMachine:
-    Type: AWS::Serverless::StateMachine
-    Properties:
-      DefinitionSubstitutions:
-        TaskAssignmentTopicArn: 
-          Fn::ImportValue: !Sub '${CoreStackName}-TaskAssignmentTopicArn'
-        TaskDeadlineTopicArn: 
-          Fn::ImportValue: !Sub '${CoreStackName}-TaskDeadlineTopicArn'
-        ClosedTaskTopicArn: 
-          Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-      DefinitionUri: statemachines/user-onboarding.asl.json
-      Policies:
-        - SNSPublishPolicy:
-            TopicName: '*'
-
-  TaskExpiredStateMachine:
-    Type: AWS::Serverless::StateMachine
-    Properties:
-      DefinitionSubstitutions:
-        TasksTableName: 
-          Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-        ClosedTaskTopicArn: 
-          Fn::ImportValue: !Sub '${CoreStackName}-ClosedTaskTopicArn'
-      DefinitionUri: statemachines/task-expired.asl.json
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: 
-              Fn::ImportValue: !Sub '${CoreStackName}-TasksTableName'
-        - SNSPublishPolicy:
-            TopicName: '*'
 Outputs:
   ApiEndpoint:
     Description: API Gateway Endpoint URL
