@@ -77,17 +77,23 @@ Resources:
   SubscribeToSNSTopicsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: HelloWorldFunction/
+      CodeUri: functions/subscribe/
       Handler: helloworld.SNSSubscriptionHandler::handleRequest
       Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
       Policies:
-        - SNSSendMessagePolicy:
-            TopicName: !GetAtt TaskAssignmentNotificationTopic.TopicName
-        - SNSSendMessagePolicy:
-            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
-        - SNSSendMessagePolicy:
-            TopicName: !GetAtt ClosedTaskNotificationTopic.TopicName
-
+        - Statement:
+            - Effect: Allow
+              Action:
+                - sns:Subscribe
+                - sns:Unsubscribe
+              Resource:
+                - !Ref TaskAssignmentNotificationTopic
+                - !Ref TaskDeadlineNotificationTopic
+                - !Ref ClosedTaskNotificationTopic
 
   # SQS Queues
   TaskAssignmentQueue:

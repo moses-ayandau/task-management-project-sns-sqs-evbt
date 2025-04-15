@@ -26,39 +26,34 @@ public class SNSSubscriptionHandler implements RequestHandler<Map<String, Object
         Map<String, Object> response = new HashMap<>();
         
         try {
-            context.getLogger().log("Received event: " + event.toString());
+            context.getLogger().log("Received event: " + event);
             
             String action = (String) event.get("action");
             String topicArn = (String) event.get("topicArn");
             String protocol = (String) event.get("protocol");
             String endpoint = (String) event.get("endpoint");
 
-            if ("subscribe".equals(action)) {
-                SubscribeRequest subscribeRequest = SubscribeRequest.builder()
-                    .topicArn(topicArn)
-                    .protocol(protocol)
-                    .endpoint(endpoint)
-                    .build();
-
-                SubscribeResponse subscribeResponse = snsClient.subscribe(subscribeRequest);
-                context.getLogger().log("Subscription ARN: " + subscribeResponse.subscriptionArn());
-
-                response.put("statusCode", 200);
-                response.put("body", Map.of(
-                    "subscriptionArn", subscribeResponse.subscriptionArn(),
-                    "message", "Successfully subscribed"
-                ));
-            } else {
-                throw new IllegalArgumentException("Invalid action: " + action);
+            if (!"subscribe".equals(action)) {
+                throw new IllegalArgumentException("Invalid action. Only 'subscribe' is supported");
             }
+
+            SubscribeRequest subscribeRequest = SubscribeRequest.builder()
+                .topicArn(topicArn)
+                .protocol(protocol)
+                .endpoint(endpoint)
+                .build();
+
+            SubscribeResponse subscribeResponse = snsClient.subscribe(subscribeRequest);
+            context.getLogger().log("Subscription ARN: " + subscribeResponse.subscriptionArn());
+
+            response.put("statusCode", 200);
+            response.put("subscriptionArn", subscribeResponse.subscriptionArn());
+            response.put("message", "Successfully subscribed");
             
         } catch (Exception e) {
             context.getLogger().log("Error processing subscription: " + e.getMessage());
             response.put("statusCode", 500);
-            response.put("body", Map.of(
-                "error", e.getMessage(),
-                "message", "Failed to process subscription"
-            ));
+            response.put("error", e.getMessage());
         }
         
         return response;

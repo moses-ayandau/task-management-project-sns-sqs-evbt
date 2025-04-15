@@ -1,5 +1,5 @@
 {
-    "Comment": "A state machine that handles the user onboarding process and SNS topic subscriptions",
+    "Comment": "User Onboarding Workflow",
     "StartAt": "SubscribeToSNSTopics",
     "States": {
       "SubscribeToSNSTopics": {
