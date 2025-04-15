@@ -309,14 +309,14 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEventBridgeSchedulerExecutionPolicy
-      Policies:
-        - PolicyName: InvokeLambdaPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: lambda:InvokeFunction
-                Resource: !GetAtt TaskDeadlineScheduler.Arn
+      # Policies:
+      #   - PolicyName: InvokeLambdaPolicy
+      #     PolicyDocument:
+      #       Version: '2012-10-17'
+      #       Statement:
+      #         - Effect: Allow
+      #           Action: lambda:InvokeFunction
+      #           Resource: !GetAtt TaskDeadlineScheduler.Arn
 
 Outputs:
   UsersTableName:
