@@ -308,7 +308,7 @@ Resources:
               Service: scheduler.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEventBridgeSchedulerExecutionPolicy
+        - arn:aws:iam::aws:policy/AmazonEventBridgeSchedulerFullAccess
       # Policies:
       #   - PolicyName: InvokeLambdaPolicy
       #     PolicyDocument:
