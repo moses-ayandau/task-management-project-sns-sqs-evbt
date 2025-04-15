@@ -77,7 +77,7 @@ Resources:
   SubscribeToSNSTopicsFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: helloWorldFunction/
+      CodeUri: HelloWorldFunction/
       Handler: helloworld.SNSSubscriptionHandler::handleRequest
       Runtime: java21
       Policies:
