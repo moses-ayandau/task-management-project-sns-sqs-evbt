@@ -66,20 +66,20 @@
                 "Next": "GetAdminDetails"
               },
               "GetAdminDetails": {
-                "Type": "Task",
-                "Resource": "arn:aws:states:::dynamodb:scan",
-                "Parameters": {
-                  "TableName": "${UsersTableName}",
-                  "FilterExpression": "isAdmin = :isAdmin",
-                  "ExpressionAttributeValues": {
-                    ":isAdmin": {
-                      "BOOL": true
-                    }
-                  }
-                },
-                "ResultPath": "$.adminDetails",
-                "Next": "NotifyUsersAboutExpiredTask"
-              },
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:scan",
+                    "Parameters": {
+                      "TableName": "${UsersTableName}",
+                      "FilterExpression": "isAdmin = :isAdmin",
+                      "ExpressionAttributeValues": {
+                        ":isAdmin": {
+                          "BOOL": true
+                        }
+                      }
+                    },
+                    "ResultPath": "$.adminDetails",
+                    "Next": "NotifyUsersAboutExpiredTask"
+                  },
               "NotifyUsersAboutExpiredTask": {
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:publish",
