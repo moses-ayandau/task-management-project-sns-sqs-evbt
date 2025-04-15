@@ -51,11 +51,7 @@ Resources:
             UserPoolArn: !GetAtt UserPool.Arn
             Identity:
               Header: Authorization
-      # Explicit dependencies to ensure UserPool exists first
-      DependsOn:
-        - UserPool
-        - UserPoolClient
-      
+     
 
 
 
