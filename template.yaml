@@ -249,52 +249,52 @@ Resources:
         - SQSSendMessagePolicy:
             QueueName: !GetAtt TaskAssignmentQueue.QueueName
 
-  # ProcessExpiredTaskFunction:
-  #   Type: AWS::Serverless::Function
-  #   Properties:
-  #     CodeUri: lambdas/task/
-  #     Handler: org.example.handlers.ProcessExpiredTaskHandler::handleRequest
-  #     Runtime: java21
-  #     Architectures:
-  #       - x86_64
-  #     MemorySize: 512
-  #     Timeout: 30
-  #     Environment:
-  #       Variables:
-  #         TASK_EXPIRATION_STEP_FUNCTION_ARN: !GetAtt TaskExpirationStepFunction.Arn
-  #     Events:
-  #       SQSEvent:
-  #         Type: SQS
-  #         Properties:
-  #           Queue: !GetAtt ExpiredTasksQueue.Arn
-  #           BatchSize: 1
-  #     Policies:
-  #       - StepFunctionsExecutionPolicy:
-  #           StateMachineName: !GetAtt TaskExpirationStepFunction.Name
+  ProcessExpiredTaskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: HelloWorldFunction/
+      Handler: helloworld.TaskExpiredProcessor::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TASK_EXPIRATION_STEP_FUNCTION_ARN: !GetAtt TaskExpirationStepFunction.Arn
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ExpiredTasksQueue.Arn
+            BatchSize: 1
+      Policies:
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt TaskExpirationStepFunction.Name
 
-  # # EventBridge Scheduler Rule for Task Deadlines
-  # TaskDeadlineScheduler:
-  #   Type: AWS::Serverless::Function
-  #   Properties:
-  #     CodeUri: lambdas/scheduler/
-  #     Handler: org.example.handlers.TaskDeadlineSchedulerHandler::handleRequest
-  #     Runtime: java21
-  #     Architectures:
-  #       - x86_64
-  #     MemorySize: 512
-  #     Timeout: 30
-  #     Environment:
-  #       Variables:
-  #         TASKS_TABLE: !Ref TasksTable
-  #         TASK_DEADLINE_NOTIFICATION_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-  #         EXPIRED_TASKS_QUEUE_URL: !Ref ExpiredTasksQueue
-  #     Policies:
-  #       - DynamoDBCrudPolicy:
-  #           TableName: !Ref TasksTable
-  #       - SNSPublishMessagePolicy:
-  #           TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
-  #       - SQSSendMessagePolicy:
-  #           QueueName: !GetAtt ExpiredTasksQueue.QueueName
+  # EventBridge Scheduler Rule for Task Deadlines
+  TaskDeadlineScheduler:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: HelloWorldFunction/
+      Handler: helloworld.DeadlineNotificationHandler::handleRequest
+      Runtime: java21
+      Architectures:
+        - x86_64
+      MemorySize: 512
+      Timeout: 30
+      Environment:
+        Variables:
+          TASKS_TABLE: !Ref TasksTable
+          TASK_DEADLINE_NOTIFICATION_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+          EXPIRED_TASKS_QUEUE_URL: !Ref ExpiredTasksQueue
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt TaskDeadlineNotificationTopic.TopicName
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt ExpiredTasksQueue.QueueName
 
   # EventBridge Scheduler Role
   EventBridgeSchedulerRole:
@@ -309,14 +309,14 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonEventBridgeSchedulerFullAccess
-      # Policies:
-      #   - PolicyName: InvokeLambdaPolicy
-      #     PolicyDocument:
-      #       Version: '2012-10-17'
-      #       Statement:
-      #         - Effect: Allow
-      #           Action: lambda:InvokeFunction
-      #           Resource: !GetAtt TaskDeadlineScheduler.Arn
+      Policies:
+        - PolicyName: InvokeLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt TaskDeadlineScheduler.Arn
 
 Outputs:
   UsersTableName:
@@ -355,6 +355,6 @@ Outputs:
     Description: "Step Function ARN for User Onboarding"
     Value: !GetAtt UserOnboardingStepFunction.Arn
 
-  # TaskExpirationStepFunctionArn:
-  #   Description: "Step Function ARN for Task Expiration"
-  #   Value: !GetAtt TaskExpirationStepFunction.Arn
+  TaskExpirationStepFunctionArn:
+    Description: "Step Function ARN for Task Expiration"
+    Value: !GetAtt TaskExpirationStepFunction.Arn
