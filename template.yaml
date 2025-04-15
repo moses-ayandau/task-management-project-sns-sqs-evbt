@@ -27,16 +27,16 @@ Globals:
     MemorySize: 512
     Runtime: java21
     Environment:
-    Variables:
-      ENVIRONMENT: !Ref Environment
-      TASK_TABLE_NAME: !Ref TasksTable
-      USER_TABLE_NAME: !Ref UsersTable
-      TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
-      TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
-      CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
-      TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
-      TASK_QUEUE_URL: !Ref TaskQueue
-      DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        TASK_TABLE_NAME: !Ref TasksTable
+        USER_TABLE_NAME: !Ref UsersTable
+        TASK_ASSIGNMENT_TOPIC_ARN: !Ref TaskAssignmentNotificationTopic
+        TASK_DEADLINE_TOPIC_ARN: !Ref TaskDeadlineNotificationTopic
+        CLOSED_TASK_TOPIC_ARN: !Ref ClosedTaskNotificationTopic
+        TASK_COMPLETE_TOPIC_ARN: !Ref TaskCompleteNotificationTopic
+        TASK_QUEUE_URL: !Ref TaskQueue
+        DEAD_LETTER_QUEUE_URL: !Ref DeadLetterQueue
 
 Resources:
   # API Gateway
